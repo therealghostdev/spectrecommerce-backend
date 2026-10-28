@@ -11,3 +11,175 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+model User {
+  id                 Int          @id @default(autoincrement())
+  first_name         String
+  last_name          String
+  username           String       @unique
+  email              String       @unique
+  password_hash      String?
+  address            String?
+  role               Role         @default(USER)
+  created_at         DateTime     @default(now())
+  updated_at         DateTime     @updatedAt
+  carts              Cart[]
+  orderItems         OrderItems[]
+  orders             Orders[]
+  preferred_currency Currency     @default(NAIRA)
+}
+
+model Profile {
+  id                 Int      @id @default(autoincrement())
+  cover_image        String?
+  bg_mode            BgMode
+  shipping_addresses String[]
+}
+
+model Cart {
+  id         Int        @id @default(autoincrement())
+  user_id    Int
+  user       User       @relation(fields: [user_id], references: [id])
+  created_at DateTime   @default(now())
+  updated_at DateTime   @updatedAt
+  cartItems  CartItem[]
+}
+
+model CartItem {
+  id         Int     @id @default(autoincrement())
+  cart_id    Int
+  cart       Cart    @relation(fields: [cart_id], references: [id])
+  product_id Int
+  product    Product @relation(fields: [product_id], references: [id])
+}
+
+model Category {
+  id         Int       @id @default(autoincrement())
+  name       String
+  slug       String
+  created_at DateTime  @default(now())
+  products   Product[]
+}
+
+model Product {
+  id             Int             @id @default(autoincrement())
+  name           String
+  category_id    Int
+  category       Category        @relation(fields: [category_id], references: [id])
+  slug           String
+  description    String
+  sku            String?
+  price          BigInt // kobo or cent
+  stock_quantity Int
+  is_active      Boolean
+  created_at     DateTime        @default(now())
+  updated_at     DateTime        @updatedAt
+  productImages  ProductImages[]
+  cartItems      CartItem[]
+}
+
+model ProductImages {
+  id         Int     @id @default(autoincrement())
+  product_id Int
+  product    Product @relation(fields: [product_id], references: [id])
+  image_url  String
+  alt_text   String
+}
+
+model Orders {
+  id               Int          @id @default(autoincrement())
+  user_id          Int
+  user             User         @relation(fields: [user_id], references: [id])
+  order_number     BigInt
+  status           OrderStatus
+  sub_total        BigInt // kobo or cent
+  total            BigInt // kobo or cent
+  shipping_fee     BigInt
+  shipping_phone   String
+  shipping_address String
+  currency         Currency
+  orderItems       OrderItems[]
+  payments         Payment[]
+}
+
+model OrderItems {
+  id           Int    @id @default(autoincrement())
+  order_id     Int
+  order        Orders @relation(fields: [order_id], references: [id])
+  user         User?  @relation(fields: [user_id], references: [id])
+  user_id      Int?
+  product_name String
+  unit_price   BigInt // kobo or cent
+  quantity     Int
+}
+
+model Payment {
+  id         Int      @id @default(autoincrement())
+  order_id   Int
+  order      Orders   @relation(fields: [order_id], references: [id])
+  provider   String
+  reference  String
+  amount     BigInt
+  currency   String
+  paid_at    DateTime?
+  status     Status
+  created_at DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([provider, reference])
+  @@index([order_id, status])
+}
+
+model PaymentWebhookEvent {
+  id             Int           @id @default(autoincrement())
+  provider       String
+  event_id       String
+  event_type     String
+  status         WebhookStatus @default(RECEIVED)
+  payload        Json
+  received_at    DateTime      @default(now())
+  processed_at   DateTime?
+  failure_reason String?
+  attempts       Int           @default(0)
+
+  @@unique([provider, event_id])
+  @@index([status, received_at])
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum Status {
+  PENDING
+  FAILED
+  SUCCESSFUL
+  REFUNDED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum Currency {
+  NAIRA
+  DOLLAR
+}
+
+enum BgMode {
+  light
+  dark
+}
+
+enum WebhookStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+}
