@@ -13,52 +13,73 @@ datasource db {
 }
 
 model User {
-  id                 Int          @id @default(autoincrement())
+  id                 Int               @id @default(autoincrement())
   first_name         String
   last_name          String
-  username           String       @unique
-  email              String       @unique
+  username           String            @unique
+  email              String            @unique
   password_hash      String?
   address            String?
-  role               Role         @default(USER)
-  created_at         DateTime     @default(now())
-  updated_at         DateTime     @updatedAt
+  role               Role              @default(USER)
+  created_at         DateTime          @default(now())
+  updated_at         DateTime          @updatedAt
+  paymentsVerified   Payment[]         @relation("PaymentVerifier")
   carts              Cart[]
   orderItems         OrderItems[]
   orders             Orders[]
-  preferred_currency Currency     @default(NAIRA)
+  preferred_currency Currency          @default(NAIRA)
+  storeMemberships   StoreMembership[]
+  profiles           Profile[]
+  payments           Payment[]
 }
 
 model Profile {
   id                 Int      @id @default(autoincrement())
+  user_id            Int
+  user               User     @relation(fields: [user_id], references: [id])
   cover_image        String?
   bg_mode            BgMode
   shipping_addresses String[]
+
+  @@unique([user_id])
 }
 
 model Cart {
   id         Int        @id @default(autoincrement())
   user_id    Int
   user       User       @relation(fields: [user_id], references: [id])
+  store_id   Int
+  store      Store      @relation(fields: [store_id], references: [id])
   created_at DateTime   @default(now())
   updated_at DateTime   @updatedAt
   cartItems  CartItem[]
+
+  @@unique([store_id, user_id])
 }
 
 model CartItem {
   id         Int     @id @default(autoincrement())
   cart_id    Int
   cart       Cart    @relation(fields: [cart_id], references: [id])
+  store_id   Int
+  store      Store   @relation(fields: [store_id], references: [id])
   product_id Int
   product    Product @relation(fields: [product_id], references: [id])
+  quantity   Int     @default(1)
+
+  @@unique([cart_id, product_id])
 }
 
 model Category {
   id         Int       @id @default(autoincrement())
+  store_id   Int
+  store      Store     @relation(fields: [store_id], references: [id])
   name       String
   slug       String
   created_at DateTime  @default(now())
   products   Product[]
+
+  @@unique([store_id, slug])
 }
 
 model Product {
@@ -66,16 +87,23 @@ model Product {
   name           String
   category_id    Int
   category       Category        @relation(fields: [category_id], references: [id])
+  store_id       Int
+  store          Store           @relation(fields: [store_id], references: [id])
   slug           String
   description    String
   sku            String?
-  price          BigInt // kobo or cent
   stock_quantity Int
   is_active      Boolean
   created_at     DateTime        @default(now())
   updated_at     DateTime        @updatedAt
   productImages  ProductImages[]
   cartItems      CartItem[]
+  orderItems     OrderItems[]
+  prices         ProductPrice[]
+
+  @@unique([store_id, slug])
+  @@unique([store_id, sku])
+  @@index([store_id, category_id])
 }
 
 model ProductImages {
@@ -84,71 +112,244 @@ model ProductImages {
   product    Product @relation(fields: [product_id], references: [id])
   image_url  String
   alt_text   String
+
+  @@index([product_id])
+}
+
+model ProductPrice {
+  id         Int      @id @default(autoincrement())
+  product_id Int
+  product    Product  @relation(fields: [product_id], references: [id])
+  currency   Currency
+  amount     BigInt // kobo or cent
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([product_id, currency])
 }
 
 model Orders {
   id               Int          @id @default(autoincrement())
-  user_id          Int
-  user             User         @relation(fields: [user_id], references: [id])
-  order_number     BigInt
-  status           OrderStatus
+  user_id          Int?
+  user             User?        @relation(fields: [user_id], references: [id])
+  store_id         Int
+  store            Store        @relation(fields: [store_id], references: [id])
+  order_number     String
+  status           OrderStatus  @default(PENDING)
   sub_total        BigInt // kobo or cent
   total            BigInt // kobo or cent
   shipping_fee     BigInt
   shipping_phone   String
   shipping_address String
+  shipping_name    String
+  shipping_mail    String
   currency         Currency
   orderItems       OrderItems[]
   payments         Payment[]
+  created_at       DateTime     @default(now())
+  updated_at       DateTime     @updatedAt
+
+  @@unique([store_id, order_number])
+  @@index([store_id, status, created_at])
+  @@index([user_id])
 }
 
 model OrderItems {
-  id           Int    @id @default(autoincrement())
+  id           Int      @id @default(autoincrement())
   order_id     Int
-  order        Orders @relation(fields: [order_id], references: [id])
-  user         User?  @relation(fields: [user_id], references: [id])
-  user_id      Int?
+  order        Orders   @relation(fields: [order_id], references: [id])
+  product_id   Int?
+  product      Product? @relation(fields: [product_id], references: [id], onDelete: SetNull)
   product_name String
   unit_price   BigInt // kobo or cent
   quantity     Int
+  user         User?    @relation(fields: [userId], references: [id])
+  userId       Int?
 }
 
 model Payment {
-  id         Int      @id @default(autoincrement())
-  order_id   Int
-  order      Orders   @relation(fields: [order_id], references: [id])
-  provider   String
-  reference  String
-  amount     BigInt
-  currency   String
-  paid_at    DateTime?
-  status     Status
-  created_at DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id                  Int                   @id @default(autoincrement())
+  order_id            Int
+  order               Orders                @relation(fields: [order_id], references: [id])
+  provider_config_id  Int?
+  provider            StorePaymentProvider? @relation(fields: [provider_config_id], references: [id])
+  store_id            Int
+  store               Store                 @relation(fields: [store_id], references: [id])
+  reference           String                @unique
+  provider_reference  String?
+  payment_method      PaymentMethods
+  amount              BigInt
+  currency            Currency
+  status              Status                @default(PENDING)
+  paid_at             DateTime?
+  submitted_at        DateTime?
+  proof_url           String?
+  verified_at         DateTime?
+  verified_by_user_id Int?
+  verified_by_user    User?                 @relation("PaymentVerifier", fields: [verified_by_user_id], references: [id], onDelete: SetNull)
+  verification_source VerificationSource?
+  created_at          DateTime              @default(now())
+  updated_at          DateTime              @updatedAt
+  user                User?                 @relation(fields: [userId], references: [id])
+  userId              Int?
 
-  @@unique([provider, reference])
   @@index([order_id, status])
+  @@index([provider_config_id, provider_reference])
+  @@index([order_id])
+  @@index([store_id])
 }
 
 model PaymentWebhookEvent {
-  id             Int           @id @default(autoincrement())
-  provider       String
-  event_id       String
-  event_type     String
-  status         WebhookStatus @default(RECEIVED)
-  payload        Json
-  received_at    DateTime      @default(now())
-  processed_at   DateTime?
-  failure_reason String?
-  attempts       Int           @default(0)
+  id                 Int                  @id @default(autoincrement())
+  provider_config_id Int
+  provider_config    StorePaymentProvider @relation(fields: [provider_config_id], references: [id])
+  event_id           String
+  event_type         String
+  status             WebhookStatus        @default(RECEIVED)
+  payload            Json
+  received_at        DateTime             @default(now())
+  processed_at       DateTime?
+  failure_reason     String?
+  attempts           Int                  @default(0)
 
-  @@unique([provider, event_id])
+  @@unique([provider_config_id, event_id])
   @@index([status, received_at])
+}
+
+enum VerificationSource {
+  PROVIDER_WEBHOOK
+  MANUAL
+}
+
+model Store {
+  id                    Int                    @id @default(autoincrement())
+  plan_id               Int?
+  plan                  Plan?                  @relation(fields: [plan_id], references: [id])
+  name                  String
+  slug                  String                 @unique
+  description           String
+  status                StoreStatus            @default(DRAFT)
+  default_currency      Currency               @default(NAIRA)
+  created_at            DateTime               @default(now())
+  updated_at            DateTime               @updatedAt
+  storeMemberships      StoreMembership[]
+  products              Product[]
+  payments              Payment[]
+  storepaymentproviders StorePaymentProvider[]
+  bankAccounts          StoreBankAccount[]
+  storeCurrencies       StoreCurrency[]
+  storeDomains          StoreDomain[]
+  orders                Orders[]
+  categories            Category[]
+  carts                 Cart[]
+  cartItems             CartItem[]
+  storeAppearance       StoreAppearance?
+}
+
+model StoreAppearance {
+  id               Int      @id @default(autoincrement())
+  store_id         Int      @unique
+  store            Store    @relation(fields: [store_id], references: [id])
+  cover_image      String?
+  logo_url         String?
+  bg_mode          BgMode   @default(light)
+  background_color String?
+  updated_at       DateTime @updatedAt
+}
+
+model StoreMembership {
+  id       Int       @id @default(autoincrement())
+  store_id Int
+  store    Store     @relation(fields: [store_id], references: [id])
+  user_id  Int
+  user     User      @relation(fields: [user_id], references: [id])
+  role     StoreRole @default(OWNER)
+
+  @@unique([store_id, user_id])
+  @@index([user_id])
+}
+
+model StorePaymentProvider {
+  id             Int                   @id @default(autoincrement())
+  store_id       Int
+  store          Store                 @relation(fields: [store_id], references: [id])
+  provider       String
+  public_key     String
+  secret_key     String // encrypted cipertext
+  webhook_secret String // encrypted cipertext
+  is_enabled     Boolean
+  created_at     DateTime              @default(now())
+  updated_at     DateTime              @updatedAt
+  payments       Payment[]
+  webhook_events PaymentWebhookEvent[]
+
+  @@unique([store_id, provider])
+}
+
+model StoreBankAccount {
+  id             Int      @id @default(autoincrement())
+  store_id       Int
+  store          Store    @relation(fields: [store_id], references: [id])
+  bank_name      String
+  account_name   String
+  account_number String
+  is_enabled     Boolean  @default(true)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+}
+
+model StoreCurrency {
+  id       Int      @id @default(autoincrement())
+  store_id Int
+  store    Store    @relation(fields: [store_id], references: [id])
+  currency Currency
+
+  @@unique([store_id, currency])
+  @@index([currency])
+}
+
+model StoreDomain {
+  id         Int      @id @default(autoincrement())
+  store_id   Int
+  store      Store    @relation(fields: [store_id], references: [id])
+  domain     String   @unique
+  created_at DateTime @default(now())
+}
+
+model Plan {
+  id            Int      @id @default(autoincrement())
+  name          String
+  code          String   @unique
+  duration      String
+  monthly_price BigInt // kobo or cent
+  currency      Currency
+  max_products  BigInt
+  created_at    DateTime @default(now())
+  stores        Store[]
+}
+
+enum PaymentMethods {
+  PROVIDER
+  BANK_TRANSFER
+  ON_DELIVERY
+}
+
+enum StoreStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+}
+
+enum StoreRole {
+  OWNER
+  ADMIN
+  STAFF
 }
 
 enum Role {
   ADMIN
   USER
+  MERCHANT
 }
 
 enum Status {
@@ -156,6 +357,7 @@ enum Status {
   FAILED
   SUCCESSFUL
   REFUNDED
+  AWAITING_VERIFICATION
 }
 
 enum OrderStatus {
